@@ -15,12 +15,16 @@ import { syncConsentBannerVisibility } from './consent-banner.ts';
 
 export type GamesInterestVote = 'yes' | 'later' | 'no';
 
+export const WEB3FORMS_ACCESS_KEY = 'b76c4626-0a6d-4183-84df-c6a3e0566ea8';
+
 export interface FeedbackEntry {
   rating: number;
   gamesVote: GamesInterestVote;
   topic: string;
   notes: string;
   submittedAt: string;
+  contactEmail?: string;
+  deliveredToEmail?: boolean;
 }
 
 const FEEDBACK_STORAGE_KEY = 'santypes_feedback_history_v1';
@@ -40,6 +44,47 @@ const GAMES_OPTIONS: Array<{ value: GamesInterestVote; label: string }> = [
 ];
 
 const TOPICS = ['Typing Test', 'Curriculum', 'Analytics', 'UI / Themes', 'Bug Report'];
+
+export async function sendFeedbackToEmail(
+  entry: FeedbackEntry,
+  accessKey: string = WEB3FORMS_ACCESS_KEY
+): Promise<boolean> {
+  if (!accessKey) return false;
+  const voteText =
+    GAMES_OPTIONS.find((opt) => opt.value === entry.gamesVote)?.label ?? entry.gamesVote;
+
+  const payload: Record<string, string> = {
+    access_key: accessKey,
+    subject: `Santypes Feedback [${entry.rating}/5] - ${entry.topic}`,
+    from_name: 'Santypes Feedback Widget',
+    rating: `${entry.rating} / 5`,
+    area: entry.topic,
+    roadmap_vote: voteText,
+    notes: entry.notes.trim() || '(No notes provided)',
+    submitted_at: entry.submittedAt,
+  };
+
+  if (entry.contactEmail && entry.contactEmail.includes('@')) {
+    payload['reply_to'] = entry.contactEmail.trim();
+    payload['email'] = entry.contactEmail.trim();
+  }
+
+  try {
+    const res = await fetch('https://api.web3forms.com/submit', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) return false;
+    const json = (await res.json()) as { success?: boolean };
+    return Boolean(json?.success);
+  } catch {
+    return false;
+  }
+}
 
 export function buildFeedbackSummaryText(entry: FeedbackEntry): string {
   const voteText =
@@ -87,6 +132,8 @@ export class FeedbackModal {
   private gamesVote: GamesInterestVote = 'yes';
   private topic = 'Typing Test';
   private notes = '';
+  private contactEmail = '';
+  private isSubmitting = false;
   private submittedEntry: FeedbackEntry | null = null;
   private hasMounted = false;
 
@@ -131,14 +178,27 @@ export class FeedbackModal {
     });
   }
 
-  private submit(): void {
+  private async submit(): Promise<void> {
+    if (this.isSubmitting) return;
+    this.isSubmitting = true;
+
+    const submitBtn = this.backdrop?.querySelector<HTMLButtonElement>('#btn-submit-feedback');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+    }
+
     const entry: FeedbackEntry = {
       rating: this.rating,
       gamesVote: this.gamesVote,
       topic: this.topic,
       notes: this.notes.trim().slice(0, 500),
+      contactEmail: this.contactEmail.trim().slice(0, 120),
       submittedAt: new Date().toISOString(),
     };
+
+    const delivered = await sendFeedbackToEmail(entry);
+    entry.deliveredToEmail = delivered;
 
     saveFeedbackEntry(entry);
 
@@ -148,11 +208,13 @@ export class FeedbackModal {
       games_vote: entry.gamesVote,
       topic: entry.topic,
       has_notes: entry.notes.length > 0,
+      has_email: Boolean(entry.contactEmail),
     });
     trackAnalyticsEvent('games_interest_vote', {
       vote: entry.gamesVote,
     });
 
+    this.isSubmitting = false;
     this.submittedEntry = entry;
     this.render();
   }
@@ -188,9 +250,20 @@ export class FeedbackModal {
 
           <div class="settings-scroll-body feedback-body">
             <div class="feedback-confirm-card">
+              <div class="feedback-confirm-row">
+                <span>Status</span>
+                <strong style="color:${this.submittedEntry.deliveredToEmail ? 'var(--accent-green, #10b981)' : 'var(--accent-cyan, #06b6d4)'};">
+                  ${this.submittedEntry.deliveredToEmail ? '✓ Sent to Developer Inbox' : '✓ Saved Locally'}
+                </strong>
+              </div>
               <div class="feedback-confirm-row"><span>Rating</span><strong>${escapeHTML(this.submittedEntry.rating)} / 5</strong></div>
               <div class="feedback-confirm-row"><span>3D Typing Games Vote</span><strong>${escapeHTML(voteLabel)}</strong></div>
               <div class="feedback-confirm-row"><span>Focus Area</span><strong>${escapeHTML(this.submittedEntry.topic)}</strong></div>
+              ${
+                this.submittedEntry.contactEmail
+                  ? `<div class="feedback-confirm-row"><span>Reply-To</span><strong>${escapeHTML(this.submittedEntry.contactEmail)}</strong></div>`
+                  : ''
+              }
               ${
                 this.submittedEntry.notes
                   ? `<div class="feedback-confirm-notes">"${escapeHTML(this.submittedEntry.notes)}"</div>`
@@ -198,7 +271,11 @@ export class FeedbackModal {
               }
             </div>
             <p class="feedback-helper-note">
-              Saved locally in your browser (free-text notes are never transmitted to analytics). Use Copy Summary below if you wish to share it manually.
+              ${
+                this.submittedEntry.deliveredToEmail
+                  ? 'Your feedback was emailed directly to the developer. Thank you!'
+                  : 'Saved locally in your browser. (Offline or mail relay unavailable; you can use Copy Summary below).'
+              }
             </p>
           </div>
 
@@ -259,7 +336,7 @@ export class FeedbackModal {
             </div>
             <div>
               <h2 class="modal-title" id="feedback-modal-title" style="margin:0;font-size:18px;">Share Feedback</h2>
-              <span style="font-size:11px;color:var(--text-muted);">Help us prioritize improvements and future 3D typing games</span>
+              <span style="font-size:11px;color:var(--text-muted);">Directly delivered to developer · Helps prioritize improvements</span>
             </div>
           </div>
           <button class="modal-close-btn" id="btn-close-feedback" title="Close (Esc)">
@@ -310,12 +387,21 @@ export class FeedbackModal {
               rows="3"
               placeholder="What felt great, what bugged you, or what should we build next?"
             >${escapeHTML(this.notes)}</textarea>
+            <input
+              type="email"
+              id="feedback-email-input"
+              class="feedback-textarea"
+              style="margin-top: 8px; resize: none; min-height: unset; height: 38px;"
+              maxlength="120"
+              placeholder="Your email (optional - if you would like a reply)"
+              value="${escapeHTML(this.contactEmail)}"
+            />
           </div>
         </div>
 
         <div class="settings-modal-footer">
           <span style="font-size:12px;color:var(--text-muted);">
-            Stored locally in your browser${priorCount > 0 ? ` · Logged: ${priorCount}` : ''}
+            Sent directly to developer${priorCount > 0 ? ` · Logged: ${priorCount}` : ''}
           </span>
           <div style="display:flex;gap:10px;">
             <button type="button" class="btn-secondary" id="btn-cancel-feedback">Cancel</button>
@@ -370,9 +456,17 @@ export class FeedbackModal {
       if (e.key !== 'Escape') e.stopPropagation();
     });
 
+    const emailEl = this.backdrop.querySelector<HTMLInputElement>('#feedback-email-input');
+    emailEl?.addEventListener('input', () => {
+      this.contactEmail = emailEl.value;
+    });
+    emailEl?.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') e.stopPropagation();
+    });
+
     this.backdrop.querySelector('#btn-submit-feedback')?.addEventListener('click', () => {
       playTactileClick('button');
-      this.submit();
+      void this.submit();
     });
   }
 
@@ -383,6 +477,7 @@ export class FeedbackModal {
     const prevFocus = this.previouslyFocused;
     this.previouslyFocused = null;
     this.hasMounted = false;
+    this.isSubmitting = false;
     if (this.backdrop) {
       this.backdrop.remove();
       this.backdrop = null;

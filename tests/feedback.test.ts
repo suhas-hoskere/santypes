@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   buildFeedbackSummaryText,
   getSavedFeedbackHistory,
   saveFeedbackEntry,
+  sendFeedbackToEmail,
+  WEB3FORMS_ACCESS_KEY,
   FeedbackEntry,
 } from '../src/components/feedback-modal';
 
@@ -20,6 +22,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 describe('Feedback Modal Helpers', () => {
   beforeEach(() => {
     memStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it('formats feedback summary cleanly with and without notes', () => {
@@ -68,5 +71,50 @@ describe('Feedback Modal Helpers', () => {
     });
 
     expect(summary).not.toMatch(/mailto:|@/i);
+  });
+
+  it('posts feedback payload correctly to Web3Forms API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, message: 'Form submitted successfully' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const entry: FeedbackEntry = {
+      rating: 5,
+      gamesVote: 'yes',
+      topic: 'Typing Test',
+      notes: 'Loving the typing engine!',
+      contactEmail: 'tester@example.com',
+      submittedAt: '2026-11-10T10:00:00.000Z',
+    };
+
+    const ok = await sendFeedbackToEmail(entry, WEB3FORMS_ACCESS_KEY);
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.web3forms.com/submit');
+    expect(options.method).toBe('POST');
+
+    const parsed = JSON.parse(options.body);
+    expect(parsed.access_key).toBe(WEB3FORMS_ACCESS_KEY);
+    expect(parsed.rating).toBe('5 / 5');
+    expect(parsed.reply_to).toBe('tester@example.com');
+  });
+
+  it('handles Web3Forms failure gracefully without crashing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network offline')));
+
+    const entry: FeedbackEntry = {
+      rating: 4,
+      gamesVote: 'no',
+      topic: 'Bug Report',
+      notes: 'Failed network test',
+      submittedAt: '2026-11-10T10:00:00.000Z',
+    };
+
+    const ok = await sendFeedbackToEmail(entry, WEB3FORMS_ACCESS_KEY);
+    expect(ok).toBe(false);
   });
 });
