@@ -143,6 +143,18 @@ function bootstrapApp(): void {
 
     if (tabName === 'test') {
       currentViewCleanup = renderTypingTest(root, navigateToTab);
+    } else if (tabName === 'arcade') {
+      root.innerHTML = `
+        <div class="arcade-loading-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;gap:16px;">
+          <div class="settings-spinner" style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.1);border-top-color:var(--accent-cyan,#06b6d4);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+          <span style="font-size:13px;color:var(--text-secondary,#a1a1aa);letter-spacing:1px;text-transform:uppercase;font-family:var(--font-mono,monospace);">Initializing 3D Cyber Engine...</span>
+        </div>
+      `;
+      void import('./views/arcade-view.ts').then(({ renderArcade }) => {
+        if (currentTabName === 'arcade') {
+          currentViewCleanup = renderArcade(root, navigateToTab);
+        }
+      });
     } else if (tabName === 'curriculum') {
       currentViewCleanup = renderCurriculum(root, navigateToTab);
     } else if (tabName === 'analytics') {
