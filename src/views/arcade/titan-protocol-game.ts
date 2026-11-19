@@ -29,6 +29,12 @@ import {
   getActiveWeaponSkin,
 } from './arcade-types.ts';
 import {
+  buildCombatRocket,
+  buildPiercingArrow,
+  buildAerialPredatorDrone,
+  ModelAnimationHandle,
+} from './procedural-models.ts';
+import {
   createMetalPanelsTexture,
   createCitySkylineTexture,
   createCarbonFiberTexture,
@@ -116,7 +122,7 @@ export function startTitanProtocolGame(
   ];
   let activeComboChain = COMBO_CHAINS[0];
 
-  // Active Interceptor Drones State
+  // Active Interceptor Threats State (Authentic Cruise Rockets & Aerial Drones)
   interface InterceptorDrone {
     mesh: THREE.Group;
     label: Label2DHandle;
@@ -125,6 +131,8 @@ export function startTitanProtocolGame(
     speed: number;
     posOffset: THREE.Vector3;
     isDestroyed: boolean;
+    animHandle?: ModelAnimationHandle;
+    isRocket: boolean;
   }
   let activeDrones: InterceptorDrone[] = [];
   let droneSpawnTimer = 1.6;
@@ -1105,9 +1113,9 @@ export function startTitanProtocolGame(
   muzzleRing.position.set(0, 0, -1.3);
   weaponViewModel.add(muzzleRing);
 
-  // Physical High-Velocity 3D Plasma Railgun Bolts System
+  // Physical High-Velocity 3D Razor Piercing Arrow Munitions System
   interface PlasmaBolt {
-    mesh: THREE.Mesh;
+    handle: ModelAnimationHandle;
     targetPos: THREE.Vector3;
     velocity: THREE.Vector3;
     life: number;
@@ -1118,19 +1126,22 @@ export function startTitanProtocolGame(
     const startWorld = new THREE.Vector3();
     muzzleRing.getWorldPosition(startWorld);
 
-    const boltGeo = new THREE.CylinderGeometry(0.12, 0.08, 2.2, 8);
-    boltGeo.rotateX(Math.PI / 2);
-    const boltMat = new THREE.MeshBasicMaterial({ color: colorHex });
-    const boltMesh = new THREE.Mesh(boltGeo, boltMat);
-    boltMesh.position.copy(startWorld);
-    boltMesh.lookAt(targetPos);
-    scene.add(boltMesh);
+    // Creates an authentic razor broadhead arrow with barbed blade, carbon shaft, and 3-vaned fletching feathers
+    const arrowHandle = buildPiercingArrow({
+      scale: 0.55,
+      tipColor: colorHex,
+      shaftColor: 0x1e293b,
+      fletchColor: colorHex,
+    });
+    arrowHandle.group.position.copy(startWorld);
+    arrowHandle.group.lookAt(targetPos);
+    scene.add(arrowHandle.group);
 
     const dir = targetPos.clone().sub(startWorld).normalize();
     activeBolts.push({
-      mesh: boltMesh,
+      handle: arrowHandle,
       targetPos: targetPos.clone(),
-      velocity: dir.multiplyScalar(115),
+      velocity: dir.multiplyScalar(125),
       life: 0.35,
     });
   }
@@ -1240,63 +1251,29 @@ export function startTitanProtocolGame(
 
     const droneGroup = new THREE.Group();
     const droneGlowHex = isPhase2 ? 0xf43f5e : 0x00f0ff;
-    const droneArmorMat = new THREE.MeshStandardMaterial({
-      map: metalPanelsTexture,
-      color: 0x475569,
-      metalness: 0.85,
-      roughness: 0.28,
-    });
-    const droneTrimMat = new THREE.MeshStandardMaterial({
-      color: 0x9f1239,
-      metalness: 0.8,
-      roughness: 0.25,
-    });
-    const droneGlowMat = new THREE.MeshBasicMaterial({ color: droneGlowHex });
+    const isRocket = Math.random() > 0.45;
 
-    // Sculpted Stealth Hunter-Killer Fuselage Chassis + Canopy Spine
-    const chassisGeo = new THREE.BoxGeometry(0.95, 0.42, 1.75);
-    const chassisMesh = new THREE.Mesh(chassisGeo, droneArmorMat);
-    droneGroup.add(chassisMesh);
-
-    const canopyGeo = new THREE.CylinderGeometry(0.24, 0.44, 1.35, 6);
-    canopyGeo.rotateX(Math.PI / 2);
-    const canopyMesh = new THREE.Mesh(canopyGeo, droneTrimMat);
-    canopyMesh.position.set(0, 0.22, -0.05);
-    droneGroup.add(canopyMesh);
-
-    // Front Glowing Cyclops Sensor Visor Facing Pilot
-    const sensorGeo = new THREE.BoxGeometry(0.68, 0.14, 0.14);
-    const sensorMesh = new THREE.Mesh(sensorGeo, droneGlowMat);
-    sensorMesh.position.set(0, 0.04, 0.88);
-    droneGroup.add(sensorMesh);
-
-    // Twin Swept Carbon Delta Wings + Outer VTOL Ducted Rotor Shrouds
-    const wingMat = new THREE.MeshStandardMaterial({ map: carbonFiberTexture, color: 0x334155, metalness: 0.88, roughness: 0.24 });
-    [-1, 1].forEach((side) => {
-      const wingGeo = new THREE.BoxGeometry(1.15, 0.07, 0.56);
-      const wing = new THREE.Mesh(wingGeo, wingMat);
-      wing.position.set(side * 0.85, 0.04, -0.1);
-      wing.rotation.y = side * -0.32;
-      droneGroup.add(wing);
-
-      const shroudGeo = new THREE.TorusGeometry(0.32, 0.055, 8, 16);
-      shroudGeo.rotateX(Math.PI / 2);
-      const shroud = new THREE.Mesh(shroudGeo, droneArmorMat);
-      shroud.position.set(side * 1.38, 0.06, -0.22);
-      droneGroup.add(shroud);
-
-      const rotorCoreGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.06, 12);
-      const rotorCore = new THREE.Mesh(rotorCoreGeo, droneGlowMat);
-      rotorCore.position.set(side * 1.38, 0.06, -0.22);
-      droneGroup.add(rotorCore);
-    });
-
-    // Rear Overdrive Thruster Exhaust
-    const rearExhaustGeo = new THREE.CylinderGeometry(0.2, 0.28, 0.3, 10);
-    rearExhaustGeo.rotateX(Math.PI / 2);
-    const rearExhaust = new THREE.Mesh(rearExhaustGeo, droneGlowMat);
-    rearExhaust.position.set(0, 0, -0.92);
-    droneGroup.add(rearExhaust);
+    let animHandle: ModelAnimationHandle;
+    if (isRocket) {
+      // Authentic 3D Combat Rocket with aerodynamic nosecone, 4 cruciform fins, and thruster exhaust plume
+      animHandle = buildCombatRocket({
+        scale: 0.85,
+        bodyColor: 0x334155,
+        finColor: isPhase2 ? 0xf43f5e : 0xe11d48,
+        exhaustColor: 0xff5500,
+      });
+      // Point forward along travel path
+      animHandle.group.lookAt(0, 0, 14);
+      droneGroup.add(animHandle.group);
+    } else {
+      // Authentic 3D Stealth Aerial Predator Drone with swept wings, VTOL fans, and optic sensor
+      animHandle = buildAerialPredatorDrone({
+        scale: 0.82,
+        bodyColor: 0x1e293b,
+        glowColor: droneGlowHex,
+      });
+      droneGroup.add(animHandle.group);
+    }
 
     // Pick unique short word not already active on screen
     const wordPool = VOLLEY_WORDS.filter((w) => !activeDrones.some((d) => d.word === w));
@@ -1321,10 +1298,14 @@ export function startTitanProtocolGame(
       speed: difficulty === 'nightmare' ? 0.24 : difficulty === 'cadet' ? 0.12 : (isPhase2 ? 0.22 : 0.16),
       posOffset: new THREE.Vector3(startX, startY, startZ),
       isDestroyed: false,
+      animHandle,
+      isRocket,
     });
 
     // Update input placeholder to prime the typist
-    inputEl.placeholder = `INTERCEPT DRONE: "${activeDrones[0].word}"`;
+    inputEl.placeholder = isRocket
+      ? `INTERCEPT ROCKET: "${word}"`
+      : `INTERCEPT DRONE: "${word}"`;
   }
 
   function destroyDrone(drone: InterceptorDrone, hitByPlayer: boolean): void {
@@ -1384,6 +1365,9 @@ export function startTitanProtocolGame(
 
     // Clean up Three.js objects
     drone.label.dispose();
+    if (drone.animHandle) {
+      drone.animHandle.dispose();
+    }
     scene.remove(drone.mesh);
     drone.mesh.traverse((child) => {
       if (child instanceof THREE.Mesh) {
@@ -1397,13 +1381,16 @@ export function startTitanProtocolGame(
       droneSpawnTimer = 2.65; // Next drone arrives in ~0.35s for crisp tempo!
     }
     inputEl.placeholder = activeDrones[0]
-      ? `INTERCEPT DRONE: "${activeDrones[0].word}"`
+      ? (activeDrones[0].isRocket ? `INTERCEPT ROCKET: "${activeDrones[0].word}"` : `INTERCEPT DRONE: "${activeDrones[0].word}"`)
       : 'SCANNING FOR INCOMING TARGET...';
   }
 
   function clearAllDrones(): void {
     activeDrones.forEach((d) => {
       d.label.dispose();
+      if (d.animHandle) {
+        d.animHandle.dispose();
+      }
       scene.remove(d.mesh);
       d.mesh.traverse((child) => {
         if (child instanceof THREE.Mesh) {
@@ -1910,15 +1897,15 @@ export function startTitanProtocolGame(
         barMat.color.setHex(idx < litCount ? heatColor : 0x1e293b);
       });
 
-      // 2b. Update Physical 3D Flying Plasma Railgun Bolts
+      // 2b. Update Physical 3D Flying Razor Piercing Arrow Munitions
       for (let i = activeBolts.length - 1; i >= 0; i--) {
         const bolt = activeBolts[i];
         bolt.life -= delta;
-        bolt.mesh.position.addScaledVector(bolt.velocity, delta);
-        if (bolt.life <= 0 || bolt.mesh.position.distanceTo(bolt.targetPos) < 2.2) {
-          scene.remove(bolt.mesh);
-          bolt.mesh.geometry.dispose();
-          (bolt.mesh.material as THREE.Material).dispose();
+        bolt.handle.group.position.addScaledVector(bolt.velocity, delta);
+        bolt.handle.update?.(delta, now * 0.001);
+        if (bolt.life <= 0 || bolt.handle.group.position.distanceTo(bolt.targetPos) < 2.2) {
+          scene.remove(bolt.handle.group);
+          bolt.handle.dispose();
           activeBolts.splice(i, 1);
         }
       }
@@ -1972,6 +1959,9 @@ export function startTitanProtocolGame(
           const currY = drone.posOffset.y + Math.sin(drone.progress * Math.PI) * 0.85;
 
           drone.mesh.position.set(currX, currY, currZ);
+          if (drone.animHandle?.update) {
+            drone.animHandle.update(delta, now * 0.001);
+          }
           drone.mesh.rotation.z = (drone.posOffset.x > 0 ? -0.25 : 0.25) * (1 - drone.progress);
           drone.mesh.rotation.y = (drone.posOffset.x > 0 ? -0.18 : 0.18) * (1 - drone.progress);
           drone.mesh.rotation.x = Math.sin(now * 0.003 + i) * 0.08;
@@ -2086,9 +2076,8 @@ export function startTitanProtocolGame(
     scene.remove(parryDomeMesh);
     activeFlyingDebris.forEach((d) => scene.remove(d.mesh));
     activeBolts.forEach((b) => {
-      scene.remove(b.mesh);
-      b.mesh.geometry.dispose();
-      (b.mesh.material as THREE.Material).dispose();
+      scene.remove(b.handle.group);
+      b.handle.dispose();
     });
     scene.remove(bossGroup);
     scene.remove(platformMesh);

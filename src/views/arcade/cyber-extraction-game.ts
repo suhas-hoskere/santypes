@@ -30,6 +30,13 @@ import {
   unlockArcadeTrophy,
   getActiveWeaponSkin,
 } from './arcade-types.ts';
+import {
+  buildCombatRobot,
+  buildAerialPredatorDrone,
+  buildGoliathSiegeTank,
+  buildCombatRocket,
+  ModelAnimationHandle,
+} from './procedural-models.ts';
 
 export function startCyberExtractionGame(
   stageEl: HTMLElement,
@@ -375,9 +382,19 @@ export function startCyberExtractionGame(
     maxHp: number;
     currentHp: number;
     isEliminated: boolean;
+    animHandle?: ModelAnimationHandle;
+  }
+
+  interface ActiveMortarRocket {
+    handle: ModelAnimationHandle;
+    origin: THREE.Vector3;
+    target: THREE.Vector3;
+    progress: number;
+    speed: number;
   }
 
   let activeHostiles: HostileEntity[] = [];
+  let activeRockets: ActiveMortarRocket[] = [];
   let enemySpawnTimer = 0;
 
   function spawnHostileWave(): void {
@@ -405,50 +422,34 @@ export function startCyberExtractionGame(
     const word = wordList[Math.floor(Math.random() * wordList.length)];
     const group = new THREE.Group();
 
-    // 3D Geometry based on hostile archetype
+    // 3D Procedural Model based on hostile archetype — Genuine Mechas, Drones & Tanks!
+    let animHandle: ModelAnimationHandle | undefined;
     if (type === 'skimmer') {
-      // Fast aerial flyer
-      const bodyGeo = new THREE.ConeGeometry(0.75, 2.2, 4);
-      bodyGeo.rotateX(Math.PI / 2);
-      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.9, roughness: 0.2 });
-      const body = new THREE.Mesh(bodyGeo, bodyMat);
-      group.add(body);
-
-      const eyeGeo = new THREE.SphereGeometry(0.25, 8, 8);
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e });
-      const eye = new THREE.Mesh(eyeGeo, eyeMat);
-      eye.position.set(0, 0, -1.05);
-      group.add(eye);
-    } else if (type === 'stalker') {
-      // Ground assault mech
-      const torsoGeo = new THREE.BoxGeometry(1.4, 1.8, 1.2);
-      const torsoMat = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.85, roughness: 0.25 });
-      const torso = new THREE.Mesh(torsoGeo, torsoMat);
-      torso.position.y = 1.0;
-      group.add(torso);
-
-      const headGeo = new THREE.BoxGeometry(0.8, 0.6, 0.8);
-      const headMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-      const head = new THREE.Mesh(headGeo, headMat);
-      head.position.set(0, 2.1, 0.2);
-      group.add(head);
-    } else {
-      // Heavy Goliath tank
-      const baseGeo = new THREE.BoxGeometry(3.2, 2.2, 3.0);
-      const baseMat = new THREE.MeshStandardMaterial({
-        map: metalPanelsTexture,
-        metalness: 0.95,
-        roughness: 0.2,
+      // Sleek swept-wing delta UAV predator drone with ducted VTOL fans and jet thrusters
+      animHandle = buildAerialPredatorDrone({
+        scale: 0.9,
+        bodyColor: 0x1e293b,
+        glowColor: 0x38bdf8,
       });
-      const base = new THREE.Mesh(baseGeo, baseMat);
-      base.position.y = 1.2;
-      group.add(base);
-
-      const coreGlowGeo = new THREE.IcosahedronGeometry(0.7, 1);
-      const coreGlowMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 });
-      const coreGlow = new THREE.Mesh(coreGlowGeo, coreGlowMat);
-      coreGlow.position.set(0, 1.4, 1.55);
-      group.add(coreGlow);
+      group.add(animHandle.group);
+    } else if (type === 'stalker') {
+      // Articulated bipedal combat mecha robot with glowing sensor visor, pauldrons, pulse rifle, and mecha boots
+      animHandle = buildCombatRobot({
+        scale: 0.95,
+        primaryColor: 0x334155,
+        accentColor: 0xef4444,
+        glowColor: 0xfacc15,
+        weaponType: 'rifle',
+      });
+      group.add(animHandle.group);
+    } else {
+      // Heavy armored Goliath siege tank with dual caterpillar tracks, rotating fortress turret, and twin railguns
+      animHandle = buildGoliathSiegeTank({
+        scale: 0.82,
+        armorColor: 0x1e293b,
+        glowColor: 0xa855f7,
+      });
+      group.add(animHandle.group);
     }
 
     // Spawn coordinate along outer perimeter
@@ -482,6 +483,7 @@ export function startCyberExtractionGame(
       maxHp: hp,
       currentHp: hp,
       isEliminated: false,
+      animHandle,
     });
 
     if (activeHostiles.length === 1) {
@@ -538,6 +540,9 @@ export function startCyberExtractionGame(
 
     // Clean up Three.js objects
     hostile.label.dispose();
+    if (hostile.animHandle) {
+      hostile.animHandle.dispose();
+    }
     scene.remove(hostile.group);
     hostile.group.traverse((child) => {
       if (child instanceof THREE.Mesh) {
@@ -656,23 +661,41 @@ export function startCyberExtractionGame(
   // --- TACTICAL KILLSTREAKS ---
   function triggerMortarBarrage(): void {
     playArtilleryShell();
-    speakMechVoice('Mortar strike inbound.');
+    speakMechVoice('Mortar strike inbound. Heavy precision rockets plunging.');
     shakeCamera(1.2);
 
     for (let m = 0; m < 3; m++) {
       setTimeout(() => {
         if (isGameEnded) return;
-        const shellTarget = new THREE.Vector3(
-          (Math.random() - 0.5) * 24,
-          0.5,
-          -15 - Math.random() * 20
+        const targetPos = activeHostiles[m % Math.max(1, activeHostiles.length)]
+          ? activeHostiles[m % Math.max(1, activeHostiles.length)].group.position.clone()
+          : new THREE.Vector3((Math.random() - 0.5) * 24, 0.5, -15 - Math.random() * 20);
+
+        const rocketHandle = buildCombatRocket({
+          scale: 0.85,
+          bodyColor: 0x1e293b,
+          finColor: 0xe11d48,
+          exhaustColor: 0xff5500,
+        });
+
+        // Plunge down from upper sky towards hostile
+        const startPos = new THREE.Vector3(
+          targetPos.x + (Math.random() - 0.5) * 6,
+          36,
+          targetPos.z - 8
         );
-        create3DExplosion(shellTarget, new THREE.Color(0xf59e0b), 50);
-        // Wipe nearest hostile if any
-        if (activeHostiles[0]) {
-          eliminateHostile(activeHostiles[0], true);
-        }
-      }, m * 240);
+        rocketHandle.group.position.copy(startPos);
+        rocketHandle.group.lookAt(targetPos);
+        scene.add(rocketHandle.group);
+
+        activeRockets.push({
+          handle: rocketHandle,
+          origin: startPos,
+          target: targetPos,
+          progress: 0,
+          speed: 1.85,
+        });
+      }, m * 280);
     }
   }
 
@@ -834,13 +857,41 @@ export function startCyberExtractionGame(
         hostile.progress += delta * hostile.speed;
 
         hostile.group.position.lerpVectors(hostile.startPos, hostile.targetPos, hostile.progress);
-        hostile.group.position.y += Math.sin(now * 0.005 + i) * 0.15; // Hover/stride bob
+        if (hostile.animHandle?.update) {
+          hostile.animHandle.update(delta, now * 0.001);
+        } else {
+          hostile.group.position.y += Math.sin(now * 0.005 + i) * 0.15; // Hover/stride bob
+        }
 
         // Orient hostile facing player
         hostile.group.lookAt(turretMount.position.x, hostile.group.position.y, turretMount.position.z);
 
         if (hostile.progress >= 1.0) {
           eliminateHostile(hostile, false);
+        }
+      }
+
+      // 2b. Animate Incoming 3D Mortar Rockets
+      for (let r = activeRockets.length - 1; r >= 0; r--) {
+        const rkt = activeRockets[r];
+        rkt.progress += delta * rkt.speed;
+        rkt.handle.update?.(delta, now * 0.001);
+
+        rkt.handle.group.position.lerpVectors(rkt.origin, rkt.target, rkt.progress);
+
+        if (rkt.progress >= 1.0) {
+          create3DExplosion(rkt.target, new THREE.Color(0xf59e0b), 55);
+          create3DExplosion(rkt.target, new THREE.Color(0xff4400), 40);
+          shakeCamera(1.1);
+          playArcadeExplosion();
+
+          if (activeHostiles[0]) {
+            eliminateHostile(activeHostiles[0], true);
+          }
+
+          rkt.handle.dispose();
+          scene.remove(rkt.handle.group);
+          activeRockets.splice(r, 1);
         }
       }
 
@@ -1031,9 +1082,18 @@ export function startCyberExtractionGame(
 
     activeHostiles.forEach((h) => {
       h.label.dispose();
+      if (h.animHandle) {
+        h.animHandle.dispose();
+      }
       scene.remove(h.group);
     });
     activeHostiles = [];
+
+    activeRockets.forEach((r) => {
+      r.handle.dispose();
+      scene.remove(r.handle.group);
+    });
+    activeRockets = [];
 
     scene.remove(turretMount);
     scene.remove(barricadesGroup);

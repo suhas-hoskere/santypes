@@ -82,6 +82,7 @@ dist/
 
 # Generated release/source archives
 *.zip
+*.mp4
 
 # Local audit report outputs
 audit/

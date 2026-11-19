@@ -12,6 +12,14 @@ import {
   getActiveWeaponSkin,
   setActiveWeaponSkin,
 } from '../src/views/arcade/arcade-types.ts';
+import {
+  buildCombatRobot,
+  buildCombatRocket,
+  buildPiercingArrow,
+  buildGoliathSiegeTank,
+  buildAerialPredatorDrone,
+} from '../src/views/arcade/procedural-models.ts';
+import * as THREE from 'three';
 
 // Mock localStorage and window for Node environment
 const mockStorage: Record<string, string> = {};
@@ -299,5 +307,129 @@ describe('3D Arcade Combat & Reward System', () => {
     setActiveWeaponSkin('obsidian');
     setActiveWeaponSkin('__proto__' as any);
     expect(getActiveWeaponSkin().id).toBe('obsidian');
+  });
+
+  describe('Procedural 3D Model Factory (Robots, Rockets, Arrows, Siege Tanks & Drones)', () => {
+    it('generates an articulated 3D Combat Robot mecha with stride animations and clean disposal', () => {
+      const robot = buildCombatRobot({
+        scale: 1.0,
+        primaryColor: 0x334155,
+        accentColor: 0xef4444,
+        glowColor: 0x00f0ff,
+        weaponType: 'rifle',
+      });
+
+      expect(robot).toBeDefined();
+      expect(robot.group).toBeInstanceOf(THREE.Group);
+
+      let meshCount = 0;
+      robot.group.traverse((child) => {
+        if (child instanceof THREE.Mesh) meshCount++;
+      });
+      // Should have extensive articulated meshes (head, visor, chest, reactor, arms, rifle, thighs, boots)
+      expect(meshCount).toBeGreaterThan(15);
+
+      // Animation stride update test
+      expect(typeof robot.update).toBe('function');
+      robot.update!(0.016, 1.25);
+
+      // Disposal test
+      expect(() => robot.dispose()).not.toThrow();
+    });
+
+    it('generates an authentic aerodynamic 3D Combat Rocket with ogive nosecone, 4 fins, and thruster flame', () => {
+      const rocket = buildCombatRocket({
+        scale: 1.0,
+        bodyColor: 0xf1f5f9,
+        finColor: 0xe11d48,
+        exhaustColor: 0xff5500,
+      });
+
+      expect(rocket).toBeDefined();
+      expect(rocket.group).toBeInstanceOf(THREE.Group);
+
+      let meshCount = 0;
+      rocket.group.traverse((child) => {
+        if (child instanceof THREE.Mesh) meshCount++;
+      });
+      // Warhead, radome tip, main fuselage, decal band, 4 stabilizer fins, nozzle, outer flame, inner flame
+      expect(meshCount).toBeGreaterThanOrEqual(9);
+
+      // Roll & flame flicker animation test
+      expect(typeof rocket.update).toBe('function');
+      rocket.update!(0.016, 0.5);
+
+      expect(() => rocket.dispose()).not.toThrow();
+    });
+
+    it('generates an authentic razor broadhead 3D Piercing Arrow with barbed blade, carbon shaft, and 3-vaned fletching', () => {
+      const arrow = buildPiercingArrow({
+        scale: 1.0,
+        tipColor: 0x38bdf8,
+        shaftColor: 0x334155,
+        fletchColor: 0x0284c7,
+      });
+
+      expect(arrow).toBeDefined();
+      expect(arrow.group).toBeInstanceOf(THREE.Group);
+
+      let meshCount = 0;
+      arrow.group.traverse((child) => {
+        if (child instanceof THREE.Mesh) meshCount++;
+      });
+      // Broadhead tip, shaft, 3 fletching feathers, rear nock
+      expect(meshCount).toBeGreaterThanOrEqual(5);
+
+      expect(typeof arrow.update).toBe('function');
+      arrow.update!(0.016, 0.8);
+
+      expect(() => arrow.dispose()).not.toThrow();
+    });
+
+    it('generates an authentic Heavy Goliath Siege Tank with caterpillar tracks, rotating turret, and twin railguns', () => {
+      const tank = buildGoliathSiegeTank({
+        scale: 1.0,
+        armorColor: 0x334155,
+        glowColor: 0xa855f7,
+      });
+
+      expect(tank).toBeDefined();
+      expect(tank.group).toBeInstanceOf(THREE.Group);
+
+      let meshCount = 0;
+      tank.group.traverse((child) => {
+        if (child instanceof THREE.Mesh) meshCount++;
+      });
+      // Heavy tracks with road wheels, chassis hull, ram blade, turret base & hull, twin barrels, muzzle brakes, cupola, radar, reactor
+      expect(meshCount).toBeGreaterThanOrEqual(15);
+
+      expect(typeof tank.update).toBe('function');
+      tank.update!(0.016, 2.0);
+
+      expect(() => tank.dispose()).not.toThrow();
+    });
+
+    it('generates an authentic 3D Aerial Predator Drone with swept delta wings, ducted VTOL fans, and jet thruster', () => {
+      const drone = buildAerialPredatorDrone({
+        scale: 1.0,
+        bodyColor: 0x1e293b,
+        glowColor: 0x38bdf8,
+      });
+
+      expect(drone).toBeDefined();
+      expect(drone.group).toBeInstanceOf(THREE.Group);
+
+      let meshCount = 0;
+      drone.group.traverse((child) => {
+        if (child instanceof THREE.Mesh) meshCount++;
+      });
+      // Stealth fuselage, nose canopy, optic sensor ball, swept delta wings, cowl rings, fan hubs, micro missiles, jet thruster
+      expect(meshCount).toBeGreaterThanOrEqual(10);
+
+      expect(typeof drone.update).toBe('function');
+      drone.update!(0.016, 1.5);
+
+      expect(() => drone.dispose()).not.toThrow();
+    });
   });
 });

@@ -35,6 +35,11 @@ import {
   unlockArcadeTrophy,
   getActiveWeaponSkin,
 } from './arcade-types.ts';
+import {
+  buildCombatRobot,
+  buildCombatRocket,
+  ModelAnimationHandle,
+} from './procedural-models.ts';
 import { escapeHTML } from '../../utils/html.ts';
 
 interface EnemyCombatant {
@@ -50,6 +55,16 @@ interface EnemyCombatant {
   laserLight: THREE.PointLight;
   isDead: boolean;
   basePosition: THREE.Vector3;
+  animHandle?: ModelAnimationHandle;
+}
+
+interface DroppingAirstrikeRocket {
+  handle: ModelAnimationHandle;
+  origin: THREE.Vector3;
+  target: THREE.Vector3;
+  progress: number;
+  speed: number;
+  onImpact?: () => void;
 }
 
 interface ShellCasing {
@@ -119,6 +134,7 @@ export function startCyberDropzoneGame(
   const activeEnemies: EnemyCombatant[] = [];
   const activeCasings: ShellCasing[] = [];
   const activeLootDrops: LootDrop[] = [];
+  const activeAirstrikeRockets: DroppingAirstrikeRocket[] = [];
   let currentAirdrop: AirdropCrate | null = null;
   let nextAirdropTimer = difficulty === 'nightmare' ? 22 : 18;
 
@@ -725,18 +741,53 @@ export function startCyberDropzoneGame(
   scene.add(camera);
 
   // --- PROCEDURAL 3D HUMANOID OPERATOR BUILDER ---
-  function createHumanoidOperator(type: 'sniper' | 'striker' | 'boss'): { group: THREE.Group; laser: THREE.Line; light: THREE.PointLight } {
+  function createHumanoidOperator(type: 'sniper' | 'striker' | 'boss'): {
+    group: THREE.Group;
+    laser: THREE.Line;
+    light: THREE.PointLight;
+    animHandle?: ModelAnimationHandle;
+  } {
     const grp = new THREE.Group();
     const isBoss = type === 'boss';
 
-    // Materials
-    const armorColor = isBoss ? 0xd97706 : type === 'sniper' ? 0x0284c7 : 0x64748b;
+    // If Boss, spawn authentic heavy combat mecha robot with articulated limbs and power core
+    if (isBoss) {
+      const robotHandle = buildCombatRobot({
+        scale: 1.25,
+        primaryColor: 0x1e293b,
+        accentColor: 0xd97706,
+        glowColor: 0xff0044,
+        weaponType: 'rifle',
+      });
+      grp.add(robotHandle.group);
+
+      const laserMat = new THREE.LineBasicMaterial({
+        color: 0xff0044,
+        transparent: true,
+        opacity: 0.75,
+      });
+      const laserGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0.35, 1.8, 0.9),
+        new THREE.Vector3(0, 2.5, 20),
+      ]);
+      const laser = new THREE.Line(laserGeo, laserMat);
+      grp.add(laser);
+
+      const laserLight = new THREE.PointLight(0xff0044, 2.0, 8);
+      laserLight.position.set(0.35, 1.8, 0.95);
+      grp.add(laserLight);
+
+      return { group: grp, laser, light: laserLight, animHandle: robotHandle };
+    }
+
+    // Materials for Operators
+    const armorColor = type === 'sniper' ? 0x0284c7 : 0x64748b;
     const vestMat = new THREE.MeshStandardMaterial({ color: armorColor, metalness: 0.6, roughness: 0.35 });
     const fatigueMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7 });
     const skinMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.65 });
 
     // Torso / Tactical Plate Carrier (Heroic Combat Scale)
-    const torsoScale = isBoss ? 1.65 : 1.25;
+    const torsoScale = 1.25;
     const torsoGeo = new THREE.BoxGeometry(0.9 * torsoScale, 1.2 * torsoScale, 0.5 * torsoScale);
     const torso = new THREE.Mesh(torsoGeo, vestMat);
     torso.position.y = 1.9 * torsoScale;
@@ -764,7 +815,7 @@ export function startCyberDropzoneGame(
 
     // Glowing NVG Visor / Cyber Eye Lens
     const visorGeo = new THREE.BoxGeometry(0.42 * torsoScale, 0.1 * torsoScale, 0.2 * torsoScale);
-    const visorMat = new THREE.MeshBasicMaterial({ color: isBoss ? 0xff0044 : type === 'sniper' ? 0x38bdf8 : 0xf43f5e });
+    const visorMat = new THREE.MeshBasicMaterial({ color: type === 'sniper' ? 0x38bdf8 : 0xf43f5e });
     const visor = new THREE.Mesh(visorGeo, visorMat);
     visor.position.set(0, 2.8 * torsoScale, 0.28 * torsoScale);
     grp.add(visor);
@@ -799,7 +850,7 @@ export function startCyberDropzoneGame(
 
     // Red Aiming Laser targeting player
     const laserMat = new THREE.LineBasicMaterial({
-      color: isBoss ? 0xff0044 : 0xff2222,
+      color: 0xff2222,
       transparent: true,
       opacity: 0.65,
     });
@@ -822,7 +873,7 @@ export function startCyberDropzoneGame(
   function spawnEnemy(type: 'sniper' | 'striker' | 'boss'): void {
     if (isGameEnded) return;
 
-    const { group, laser, light: laserLight } = createHumanoidOperator(type);
+    const { group, laser, light: laserLight, animHandle } = createHumanoidOperator(type);
     let spawnPos = new THREE.Vector3();
     let word = '';
 
@@ -891,6 +942,7 @@ export function startCyberDropzoneGame(
       laserLight,
       isDead: false,
       basePosition: spawnPos.clone(),
+      animHandle,
     });
   }
 
@@ -1083,6 +1135,9 @@ export function startCyberDropzoneGame(
 
     pushKillfeed('YOU', enemy.type === 'boss' ? 'ALPHA_WARLORD' : enemy.word, isAdsActive ? 'AWM [4X SCOPE]' : 'AWM HEADSHOT', true);
     enemy.labelHandle.dispose();
+    if (enemy.animHandle) {
+      enemy.animHandle.dispose();
+    }
     scene.remove(enemy.mesh);
 
     // Spawn Dropped Loot Crate for non-boss enemies
@@ -1114,12 +1169,39 @@ export function startCyberDropzoneGame(
       playerArmor = 100;
       speakMechVoice('Level 3 tactical Kevlar equipped!');
     } else {
-      // Airstrike wiping all active enemies
+      // Tactical airstrike wiping active enemies with plunging 3D combat rockets!
       playSniperRifle();
-      speakMechVoice('Tactical airstrike coordinates confirmed! Incoming bombardment!');
-      activeEnemies.forEach((e) => {
+      speakMechVoice('Tactical airstrike coordinates confirmed! Incoming precision missiles!');
+      activeEnemies.forEach((e, idx) => {
         if (!e.isDead && e.type !== 'boss') {
-          eliminateEnemy(e);
+          const rocketHandle = buildCombatRocket({
+            scale: 0.95,
+            bodyColor: 0x1e293b,
+            finColor: 0xeab308,
+            exhaustColor: 0xff4400,
+          });
+          const targetPos = e.mesh.position.clone();
+          const startPos = new THREE.Vector3(
+            targetPos.x + (Math.random() - 0.5) * 4,
+            42,
+            targetPos.z - 8
+          );
+          rocketHandle.group.position.copy(startPos);
+          rocketHandle.group.lookAt(targetPos);
+          scene.add(rocketHandle.group);
+
+          scheduleGameTimeout(() => {
+            activeAirstrikeRockets.push({
+              handle: rocketHandle,
+              origin: startPos,
+              target: targetPos,
+              progress: 0,
+              speed: 2.2,
+              onImpact: () => {
+                eliminateEnemy(e);
+              },
+            });
+          }, idx * 160);
         }
       });
     }
@@ -1411,8 +1493,12 @@ export function startCyberDropzoneGame(
       activeEnemies.forEach((enemy) => {
         if (enemy.isDead) return;
 
-        // Subtle tactical sway / breathing
-        enemy.mesh.position.y = enemy.basePosition.y + Math.sin(now * 0.003 + enemy.basePosition.x) * 0.08;
+        // Subtle tactical sway / breathing or robot mech animation
+        if (enemy.animHandle?.update) {
+          enemy.animHandle.update(delta, now * 0.001);
+        } else {
+          enemy.mesh.position.y = enemy.basePosition.y + Math.sin(now * 0.003 + enemy.basePosition.x) * 0.08;
+        }
 
         // Aim laser sight directly at player's camera
         const origin = enemy.mesh.position.clone().add(new THREE.Vector3(0.2, 1.8, 0.9));
@@ -1459,6 +1545,25 @@ export function startCyberDropzoneGame(
           }
         }
       });
+    }
+
+    // --- ANIMATE INCOMING 3D TACTICAL AIRSTRIKE ROCKETS ---
+    for (let r = activeAirstrikeRockets.length - 1; r >= 0; r--) {
+      const rkt = activeAirstrikeRockets[r];
+      rkt.progress += delta * rkt.speed;
+      rkt.handle.update?.(delta, now * 0.001);
+      rkt.handle.group.position.lerpVectors(rkt.origin, rkt.target, rkt.progress);
+
+      if (rkt.progress >= 1.0) {
+        create3DExplosion(rkt.target, new THREE.Color(0xf59e0b), 50);
+        create3DExplosion(rkt.target, new THREE.Color(0xff4400), 35);
+        shakeCamera(0.65);
+        playArcadeExplosion();
+        rkt.onImpact?.();
+        rkt.handle.dispose();
+        scene.remove(rkt.handle.group);
+        activeAirstrikeRockets.splice(r, 1);
+      }
     }
 
     // --- WEAPON VIEWMODEL SPRING, SWAY & ADS BLEND ---
@@ -1586,8 +1691,16 @@ export function startCyberDropzoneGame(
 
       activeEnemies.forEach((e) => {
         e.labelHandle.dispose();
+        if (e.animHandle) {
+          e.animHandle.dispose();
+        }
         scene.remove(e.mesh);
       });
+      activeAirstrikeRockets.forEach((r) => {
+        r.handle.dispose();
+        scene.remove(r.handle.group);
+      });
+      activeAirstrikeRockets.length = 0;
       activeCasings.forEach((c) => {
         scene.remove(c.mesh);
         c.mesh.geometry.dispose();
